@@ -220,7 +220,6 @@ work_element::~work_element() {
 }
 void work_element::do_kernel(){
 	free=false;
-	*time_start=get_time_msec();
 	CUDA_CHECK(cudaEventRecord(events[0],stream));
 	int i;
 	for(i=0;i<2;i++)
@@ -394,6 +393,7 @@ int main(int argc, char *argv[]) {
                update total_distance */
         	check_completed_no_block(streams);//TODO impl
             rate_limit_wait(&rate_limit);
+            req_t_start[i]=get_time_msec();
             int img_idx = i % N_IMG_PAIRS;
             work_element& free_stream=find_free_stream(streams);
             free_stream.update(&images1[img_idx * IMG_DIMENSION * IMG_DIMENSION],&images2[img_idx * IMG_DIMENSION * IMG_DIMENSION],&req_t_start[i],&req_t_end[i]);
