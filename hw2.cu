@@ -39,7 +39,7 @@ int calcNumOfThreadblocks(){//TODO: implement
 	   cudaDeviceProp prop;
 	   cudaGetDeviceProperties(&prop, i);
 	   
-	   int threadsPerBlock = prop.maxThreadsPerBlock;
+	   int maxThreadsPerBlock = prop.maxThreadsPerBlock;
 	   size_t sharedMemPerBlock = prop.sharedMemPerBlock;
 	   int regsPerThread = 32;
 	   int sm = prop.multiProcessorCount;
@@ -47,7 +47,7 @@ int calcNumOfThreadblocks(){//TODO: implement
 	   size_t sharedMemPerMultiprocessor = prop.sharedMemPerMultiprocessor;
 	   int regsPerMultiprocessor = prop.regsPerMultiprocessor;
 	   
-	   ret += // TODO
+	   //ret += // TODO
 	}		
 	
 	return ret;
@@ -310,6 +310,64 @@ void check_completed_block(work_element* streams){
     			j+=(streams[i].is_free()||(int)streams[i].check_kernel_finished());
 	}
 }
+
+
+
+
+#define QUEUE_SIZE 10
+
+/*************************************************/
+/*******CLASS***producer***consumer****queue******/
+/*************************************************/
+class cpu2gpuQueue {
+public:
+	cpu2gpuQueue():size(QUEUE_SIZE),head(0),tail(0){}
+	~cpu2gpuQueue(){}
+	__host__ int produce(uchar* imag1,uchar* imag2);
+	__device__ int consume(uchar* images);
+
+
+private:
+	volatile int size;
+	volatile int head;
+	volatile int tail;
+	int q[QUEUE_SIZE];
+};
+__device__ int cpu2gpuQueue::consume(uchar* images)
+{
+	if(!(tail<head))return 0;
+	int i;
+	for(i=threadIdx.x;i<2*SQR(IMG_DIMENSION);i+=threadIdx.x)
+		images[i]=q[(tail%QUEUE_SIZE)*2*SQR(IMG_DIMENSION)+i];
+	//make sure all threads copied before increasing the value of tail
+	 __syncthreads();
+	 if(!threadIdx.x)
+	 {
+		 size++;
+		 tail++;
+		 __threadfence_system();
+	 }
+	 __syncthreads();
+	return 1;
+}
+__host__ int cpu2gpuQueue::produce(uchar* imag1,uchar* imag2)
+{
+	if(!(head<size)) return 0;
+	memcpy(&q[(head%QUEUE_SIZE)*2*SQR(IMG_DIMENSION)],imag1,SQR(IMG_DIMENSION)*sizeof(uchar));
+	memcpy(&q[(head%QUEUE_SIZE)*2*SQR(IMG_DIMENSION)+SQR(IMG_DIMENSION)],imag2,SQR(IMG_DIMENSION)*sizeof(uchar));
+	head++;
+	 __threadfence_system();
+	return 1;
+}
+
+
+
+
+
+
+
+
+
 
 
 enum {PROGRAM_MODE_STREAMS = 0, PROGRAM_MODE_QUEUE};
