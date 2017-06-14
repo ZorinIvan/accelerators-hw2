@@ -7,7 +7,7 @@
 #include <string.h>
 
 
-#include "workelement.h"
+//#include "workelement.h"
 #define IMG_DIMENSION 32
 #define N_IMG_PAIRS 10000
 #define NREQUESTS 100000
@@ -220,6 +220,7 @@ work_element::~work_element() {
 }
 void work_element::do_kernel(){
 	free=false;
+	*time_finish=get_time_msec();
 	CUDA_CHECK(cudaEventRecord(events[0],stream));
 	int i;
 	for(i=0;i<2;i++)
@@ -235,7 +236,6 @@ void work_element::do_kernel(){
 
 bool work_element::check_kernel_finished(){
 	if(free) return false;
-
 	cudaError_t ret=cudaStreamQuery(stream);
 	if(ret==cudaErrorInvalidResourceHandle)
 	{
@@ -245,7 +245,7 @@ bool work_element::check_kernel_finished(){
 	if(ret==cudaErrorNotReady) return false;
 	float tmp=0;
 	CUDA_CHECK(cudaEventElapsedTime(&tmp,events[0],events[1]));
-	*time_finish=*time_start+tmp;
+	*time_finish+=tmp;
 	total_distance+=cpu_distance;
 	free=true;
 	return true;
