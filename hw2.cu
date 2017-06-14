@@ -30,6 +30,30 @@ typedef unsigned char uchar;
 
 
 
+int calcNumOfThreadblocks(){//TODO: implement
+	int ret = 0;
+	int nDevices;
+
+	cudaGetDeviceCount(&nDevices);
+	for (int i = 0; i < nDevices; i++) {
+	   cudaDeviceProp prop;
+	   cudaGetDeviceProperties(&prop, i);
+	   
+	   int threadsPerBlock = prop.maxThreadsPerBlock;
+	   size_t sharedMemPerBlock = prop.sharedMemPerBlock;
+	   int regsPerThread = 32;
+	   int sm = prop.multiProcessorCount;
+	   int maxThreadsPerMultiProcessor = prop.maxThreadsPerMultiProcessor;
+	   size_t sharedMemPerMultiprocessor = prop.sharedMemPerMultiprocessor;
+	   int regsPerMultiprocessor = prop.regsPerMultiprocessor;
+	   
+	   ret += // TODO
+	}		
+	
+	return ret;
+			
+}
+
 
 
 double static inline get_time_msec(void) {
@@ -405,6 +429,9 @@ int main(int argc, char *argv[]) {
 
 
     } else if (mode == PROGRAM_MODE_QUEUE) {
+    	//calc num of thread blocks that can currently run in the GPU
+    	int num_of_threadblocks = calcNumOfThreadblocks(); //TODO
+    	
         for (int i = 0; i < NREQUESTS; i++) {
 
             /* TODO check producer consumer queue for any responses.
