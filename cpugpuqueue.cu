@@ -16,7 +16,7 @@
 
 #define IMG_DIMENSION 32
 #define N_IMG_PAIRS 10000
-#define NREQUESTS 10000
+#define NREQUESTS 9
 #define N_STREMS 64
 #define HIST_SIZE 256
 
@@ -62,11 +62,13 @@ __device__  void gpu_image_to_histogram(uchar *image, int *histogram) {
 __device__  void gpu_histogram_distance(int *h1, int *h2, double *distance) {
     int length = 256;
     int tid = threadIdx.x;
-    distance[tid] = 0;
-    if (h1[tid] + h2[tid] != 0) {
-        distance[tid] = ((double)SQR(h1[tid] - h2[tid])) / (h1[tid] + h2[tid]);
+    if(tid<length){
+    	distance[tid] = 0;
+    	if (h1[tid] + h2[tid] != 0) {
+    	    distance[tid] = ((double)SQR(h1[tid] - h2[tid])) / (h1[tid] + h2[tid]);
+    	}
+    	h1[tid] = h2[tid]=0;
     }
-    h1[tid] = h2[tid]=0;
     __syncthreads();
 
 
@@ -123,6 +125,7 @@ class cpu2gpuQueue {
 public:
 	cpu2gpuQueue():size(QUEUE_SIZE),head(0),tail(0){/*printf("head=%d\tsize=%d\n",head,size)*/;}
 	~cpu2gpuQueue(){}
+	__device__ __host__ cpu2gpuQueue& operator=(const cpu2gpuQueue& rhs);
 	__host__ int produce(uchar* imag1,uchar* imag2);
 	__device__ int consume(uchar* images);
 
@@ -133,18 +136,33 @@ private:
 	volatile int tail;
 	uchar q[QUEUE_SIZE*SQR(IMG_DIMENSION)];
 };
+
+__device__ __host__ cpu2gpuQueue& cpu2gpuQueue::operator=(const cpu2gpuQueue& rhs)
+{
+	this->head=rhs.head;
+	this->size=rhs.size;
+	this->tail=rhs.tail;
+	memcpy(this->q,rhs.q,QUEUE_SIZE*SQR(IMG_DIMENSION)*sizeof(*rhs.q));
+	return *this;
+}
 __device__ int cpu2gpuQueue::consume(uchar* images)
 {
+	if(!threadIdx.x)
+	{
+		printf("cpu2gpuQueue::consume\n");
+		printf("tail=%d\thead=%d\n",tail,head);
+	}
 	if(!(tail<head))return 0;
-	int i;
+	/*int i;
 	for(i=threadIdx.x;i<2*SQR(IMG_DIMENSION);i+=gridDim.x)
-		images[i]=q[(tail%QUEUE_SIZE)*2*SQR(IMG_DIMENSION)+i];
+		images[i]=q[(tail%QUEUE_SIZE)*2*SQR(IMG_DIMENSION)+i];*/
 	//make sure all threads copied before increasing the value of tail
 	 __syncthreads();
 	 if(!threadIdx.x)
 	 {
 		 size++;
 		 tail++;
+		 printf("gpu size=%d\n",size);
 		 __threadfence_system();
 	 }
 	// __syncthreads();
@@ -167,6 +185,7 @@ class gpu2cpuQueue {
 public:
 	gpu2cpuQueue():size(QUEUE_SIZE),head(0),tail(0){}
 	~gpu2cpuQueue(){}
+	__device__ __host__ gpu2cpuQueue& operator=(const gpu2cpuQueue& rhs);
 	__device__ int produce(double distance);
 	__host__ int consume(double* distance);
 private:
@@ -175,21 +194,40 @@ private:
 	volatile int tail;
 	double q[QUEUE_SIZE];
 };
+__device__ __host__ gpu2cpuQueue& gpu2cpuQueue::operator=(const gpu2cpuQueue& rhs)
+{
+	this->head=rhs.head;
+	this->size=rhs.size;
+	this->tail=rhs.tail;
+	memcpy(this->q,rhs.q,QUEUE_SIZE*sizeof(*rhs.q));
+	return *this;
+}
 __host__ int gpu2cpuQueue::consume(double* distance)
 {
+
+
 	if(!(tail<head))return 0;
 	*distance=q[(tail%QUEUE_SIZE)];
+	printf("gpu2cpuQueue::consume\n");
+	printf("tail=%d\thead=%d\n",tail,head);
+	printf("distance=%f\n",*distance);
+	printf("size=%d\n",size);
 	size++;
 	tail++;
 	return 1;
 }
 __device__ int gpu2cpuQueue::produce(double distance)
 {
+
 	if(!(head<size)) return 0;
 	if(threadIdx.x) return 1;
+	if(threadIdx.x)printf("gpu size=%d\n",size);
 	q[(head%QUEUE_SIZE)]=distance;
+	//printf("before\n");
+	//printf("distance=%f\n",distance);
 
 	__threadfence_system();
+	//printf("after\n");
 	head++;
 	__threadfence_system();
 	return 1;
@@ -200,35 +238,43 @@ struct QP{
 };
 __global__ void test(struct QP* Ptr){
 	int i;
-	//if(!threadIdx.x) printf("test kernel\n");
+	if(!threadIdx.x) printf("test kernel\n");
 	__shared__ uchar images[2*SQR(IMG_DIMENSION)];
 	__shared__ int hist1[HIST_SIZE],hist2[HIST_SIZE];
-	__shared__ double distance[SQR(IMG_DIMENSION)];
+	__shared__ double distance[HIST_SIZE];
 
-	if(threadIdx.x<HIST_SIZE)
-		hist1[threadIdx.x]=hist2[threadIdx.x]=0;
+	//if(threadIdx.x<HIST_SIZE)
+		//hist1[threadIdx.x]=hist2[threadIdx.x]=0;
 	i=NREQUESTS;
+	//if(!threadIdx.x) printf("test kernel\n");
 	while(i--)
 	{
-		while(!Ptr->cpugpu.consume(images));
-		/*if(!threadIdx.x){
-			int j;
-			for(j=0;j<SQR(IMG_DIMENSION);++j)printf("%d%d",images[+j],images[IMG_DIMENSION * IMG_DIMENSION+j]);
-					printf("\n");
-		}*/
-		gpu_image_to_histogram(images,hist1);
-		gpu_image_to_histogram(images+SQR(IMG_DIMENSION),hist2);
+		//if(!threadIdx.x)printf("gpu loop i=%d\n",i);
+		//while(!Ptr->cpugpu.consume(images));
+		if(!threadIdx.x)printf("gpu loop i=%d\n",i);
+		//gpu_image_to_histogram(images,hist1);
+		//gpu_image_to_histogram(images+SQR(IMG_DIMENSION),hist2);
+		//__syncthreads();
+		//gpu_histogram_distance(hist1,hist2,distance);
+		//while(!Ptr->gpucpu.produce(distance[0]));
+		while(!Ptr->gpucpu.produce((double)i));
 		__syncthreads();
-		gpu_histogram_distance(hist1,hist2,distance);
-		//if(!threadIdx.x) printf("average distance between images %f\n", distance[0] / NREQUESTS);
-		__syncthreads();
-		while(!Ptr->gpucpu.produce(distance[0]));
 	}
 }
 
 
+
+__global__ void test1(int* Ptr)
+{
+	int i;
+	for(int i=0;i<NREQUESTS;++i)
+		Ptr[i]=i;
+	printf("kernel finish\n");
+	return;
+}
+
 int main(void) {
-	uchar *images1; /* we concatenate all images in one huge array */
+	uchar *images1;
 	uchar *images2;
 	CUDA_CHECK( cudaHostAlloc(&images1, N_IMG_PAIRS * IMG_DIMENSION * IMG_DIMENSION, 0) );
 	CUDA_CHECK( cudaHostAlloc(&images2, N_IMG_PAIRS * IMG_DIMENSION * IMG_DIMENSION, 0) );
@@ -259,15 +305,17 @@ int main(void) {
 
     total_distance=0;
 	test<<<1, 1024>>>(gpuqp);
+	CUDA_CHECK( cudaDeviceSynchronize());
 
-	printf("after\n");
+	//printf("after\n");
 	i=NREQUESTS;
 	while(i--)
 	{
-		//printf("loop\n");
+		printf("cpu loop i=%d\n",i);
 		distance=0;
 		if(cpuqp->gpucpu.consume(&distance))
 		{
+			//printf("distance=%f\n",distance);
 			total_distance+=distance;
 			finished++;
 
@@ -277,16 +325,20 @@ int main(void) {
 		//printf("\n");
 		while(!cpuqp->cpugpu.produce(&images1[img_idx * IMG_DIMENSION * IMG_DIMENSION],&images2[img_idx * IMG_DIMENSION * IMG_DIMENSION]));
 	}
-	CUDA_CHECK( cudaDeviceSynchronize());
+	printf("finish loop\n");
+
 	while(finished<NREQUESTS)
 	{
 		if(cpuqp->gpucpu.consume(&distance))
 		{
+			//printf("distance=%f\n",distance);
 			total_distance+=distance;
 			finished++;
 
 		}
 	}
+	printf("finish loop 2\n");
+	CUDA_CHECK( cudaDeviceSynchronize());
 	printf("average distance between images %f\n", total_distance / NREQUESTS);
 	return 0;
 }
