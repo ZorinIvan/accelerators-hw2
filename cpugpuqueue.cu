@@ -200,6 +200,7 @@ struct QP{
 };
 __global__ void test(struct QP* Ptr){
 	int i;
+	if(!threadIdx.x) printf("test kernel\n");
 	__shared__ uchar images[2*SQR(IMG_DIMENSION)];
 	__shared__ int hist1[HIST_SIZE],hist2[HIST_SIZE];
 	__shared__ double distance[SQR(IMG_DIMENSION)];
@@ -212,7 +213,9 @@ __global__ void test(struct QP* Ptr){
 		while(!Ptr->cpugpu.consume(images))
 		gpu_image_to_histogram(images,hist1);
 		gpu_image_to_histogram(images+SQR(IMG_DIMENSION),hist2);
+		__syncthreads();
 		gpu_histogram_distance(hist1,hist2,distance);
+		if(!threadIdx.x) printf("test kernel\n");
 		__syncthreads();
 		while(!Ptr->gpucpu.produce(distance[0]));
 	}
