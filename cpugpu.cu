@@ -5,9 +5,11 @@
 #include <assert.h>
 #include <string.h>
 
+
+#ifdef CPUGPU_CU_
 #define IMG_DIMENSION 32
 #define N_IMG_PAIRS 10000
-#define NREQUESTS 1000
+#define NREQUESTS 100000
 #define N_STREMS 64
 #define HIST_SIZE 256
 
@@ -114,7 +116,7 @@ void load_image_pairs(uchar *images1, uchar *images2) {
 
 class cpu2gpuQueue {
 public:
-	cpu2gpuQueue():size(QUEUE_SIZE),head(0),tail(0){/*printf("head=%d\tsize=%d\n",head,size)*/;}
+	cpu2gpuQueue():size(QUEUE_SIZE),head(0),tail(0){}
 	~cpu2gpuQueue(){}
 	//__device__ __host__ cpu2gpuQueue& operator=(const cpu2gpuQueue& rhs);
 	__host__ int produce(int img_idx);
@@ -239,7 +241,7 @@ __global__ void test(QP** gpuQPs,uchar* imags1,uchar* imags2 ){
 }
 
 
-int calcNumOfThreadblocks(){return 2;}
+int calcNumOfThreadblocks(){return 3;}
 void checkQueueComplition(int num_of_threadblocks,QP **cpuQPs,int * finished, double* total_distance )
 {
 
@@ -379,3 +381,4 @@ int main2()
 	CUDA_CHECK( cudaFreeHost(cpu) );
 	return 1;
 }
+#endif

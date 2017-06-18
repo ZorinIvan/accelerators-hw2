@@ -13,7 +13,7 @@
 #include <unistd.h>
 #include <assert.h>
 #include <string.h>
-
+/*
 #define IMG_DIMENSION 32
 #define N_IMG_PAIRS 10000
 #define NREQUESTS 6
@@ -93,7 +93,7 @@ void image_to_histogram(uchar *image, int *histogram) {
 }
 
 double histogram_distance(int *h1, int *h2) {
-    /* we'll use the chi-square distance */
+    /* we'll use the chi-square distance *//*
     double distance = 0;
     for (int i = 0; i < 256; i++) {
         if (h1[i] + h2[i] != 0) {
@@ -108,7 +108,7 @@ double static inline get_time_msec(void) {
     gettimeofday(&t, NULL);
     return t.tv_sec * 1e+3 + t.tv_usec * 1e-3;
 }
-/* we won't load actual files. just fill the images with random bytes */
+/* we won't load actual files. just fill the images with random bytes *//*
 void load_image_pairs(uchar *images1, uchar *images2) {
     srand(0);
     for (int i = 0; i < N_IMG_PAIRS * IMG_DIMENSION * IMG_DIMENSION; i++) {
@@ -120,10 +120,10 @@ void load_image_pairs(uchar *images1, uchar *images2) {
 
 /*************************************************/
 /*******CLASS***producer***consumer****queue******/
-/*************************************************/
+/*************************************************//*
 class cpu2gpuQueue {
 public:
-	cpu2gpuQueue():size(QUEUE_SIZE),head(0),tail(0){/*printf("head=%d\tsize=%d\n",head,size)*/;}
+	cpu2gpuQueue():size(QUEUE_SIZE),head(0),tail(0){/*printf("head=%d\tsize=%d\n",head,size)*//*;}
 	~cpu2gpuQueue(){}
 	__device__ __host__ cpu2gpuQueue& operator=(const cpu2gpuQueue& rhs);
 	__host__ int produce(uchar* imag1,uchar* imag2);
@@ -156,7 +156,7 @@ __device__ int cpu2gpuQueue::consume(uchar* images)
 	if(!(tail<head))return 0;
 	/*int i;
 	for(i=threadIdx.x;i<2*SQR(IMG_DIMENSION);i+=gridDim.x)
-		images[i]=q[(tail%QUEUE_SIZE)*2*SQR(IMG_DIMENSION)+i];*/
+		images[i]=q[(tail%QUEUE_SIZE)*2*SQR(IMG_DIMENSION)+i];*//*
 	//make sure all threads copied before increasing the value of tail
 	 __syncthreads();
 	 if(!threadIdx.x)
@@ -355,11 +355,11 @@ int main(void) {
 			printf("finished=%d\n",finished);
 
 		}
-	}*/
+	}*//*
 
 	printf("finish loop 2\n");
 	CUDA_CHECK( cudaDeviceSynchronize());
 	cpuqp->gpucpu.test();
 	printf("average distance between images %f\n", total_distance / NREQUESTS);
 	return 0;
-}
+}*/
