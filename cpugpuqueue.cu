@@ -16,7 +16,7 @@
 
 #define IMG_DIMENSION 32
 #define N_IMG_PAIRS 10000
-#define NREQUESTS 9
+#define NREQUESTS 6
 #define N_STREMS 64
 #define HIST_SIZE 256
 
@@ -130,6 +130,7 @@ public:
 	__device__ int consume(uchar* images);
 
 
+
 private:
 	volatile int size;
 	volatile int head;
@@ -188,6 +189,12 @@ public:
 	__device__ __host__ gpu2cpuQueue& operator=(const gpu2cpuQueue& rhs);
 	__device__ int produce(double distance);
 	__host__ int consume(double* distance);
+	void testadd(){size++;}
+	void test(){
+		for(int i=0;i<QUEUE_SIZE;i++)
+			printf("%f\t",q[i]);
+		printf("\n");
+	}
 private:
 	volatile int size;
 	volatile int head;
@@ -202,8 +209,16 @@ __device__ __host__ gpu2cpuQueue& gpu2cpuQueue::operator=(const gpu2cpuQueue& rh
 	memcpy(this->q,rhs.q,QUEUE_SIZE*sizeof(*rhs.q));
 	return *this;
 }
+static int x=0;
 __host__ int gpu2cpuQueue::consume(double* distance)
 {
+
+
+	if((!(x%100))&&x<500){
+		printf("gpu2cpuQueue::consume\n");
+		printf("tail=%d\thead=%d\n",tail,head);
+	}
+	x++;
 
 
 	if(!(tail<head))return 0;
@@ -221,7 +236,7 @@ __device__ int gpu2cpuQueue::produce(double distance)
 
 	if(!(head<size)) return 0;
 	if(threadIdx.x) return 1;
-	if(threadIdx.x)printf("gpu size=%d\n",size);
+	printf("gpu size=%d\t(head%QUEUE_SIZE)=%d\n",size,(head%QUEUE_SIZE));
 	q[(head%QUEUE_SIZE)]=distance;
 	//printf("before\n");
 	//printf("distance=%f\n",distance);
@@ -245,12 +260,13 @@ __global__ void test(struct QP* Ptr){
 
 	//if(threadIdx.x<HIST_SIZE)
 		//hist1[threadIdx.x]=hist2[threadIdx.x]=0;
-	i=NREQUESTS;
+
 	//if(!threadIdx.x) printf("test kernel\n");
-	while(i--)
+	for(int i=0;i<NREQUESTS;i++)
 	{
+
 		//if(!threadIdx.x)printf("gpu loop i=%d\n",i);
-		//while(!Ptr->cpugpu.consume(images));
+		while(!Ptr->cpugpu.consume(images));
 		if(!threadIdx.x)printf("gpu loop i=%d\n",i);
 		//gpu_image_to_histogram(images,hist1);
 		//gpu_image_to_histogram(images+SQR(IMG_DIMENSION),hist2);
@@ -283,7 +299,7 @@ int main(void) {
 	double total_distance=0,distance=0;
 	int i=NREQUESTS,finished=0;
 	struct QP *cpuqp,*gpuqp;
-	CUDA_CHECK( cudaHostAlloc(&cpuqp, sizeof(struct QP), 0) );
+	CUDA_CHECK( cudaHostAlloc(&cpuqp, sizeof(struct QP), cudaHostAllocWriteCombined) );
 	cpuqp->cpugpu=cpu2gpuQueue();
 	cpuqp->gpucpu=gpu2cpuQueue();
 	CUDA_CHECK( cudaHostGetDevicePointer(&gpuqp,cpuqp,0) );
@@ -305,11 +321,11 @@ int main(void) {
 
     total_distance=0;
 	test<<<1, 1024>>>(gpuqp);
-	CUDA_CHECK( cudaDeviceSynchronize());
+	cpuqp->gpucpu.testadd();
+
 
 	//printf("after\n");
-	i=NREQUESTS;
-	while(i--)
+	for(int i=0;i<NREQUESTS;i++)
 	{
 		printf("cpu loop i=%d\n",i);
 		distance=0;
@@ -318,27 +334,32 @@ int main(void) {
 			//printf("distance=%f\n",distance);
 			total_distance+=distance;
 			finished++;
+			printf("finished=%d\n",finished);
 
 		}
 		int img_idx = i % N_IMG_PAIRS,j;
 		//for(j=0;j<SQR(IMG_DIMENSION);++j)printf("%d%d",images1[img_idx * IMG_DIMENSION * IMG_DIMENSION+j],images2[img_idx * IMG_DIMENSION * IMG_DIMENSION+j]);
 		//printf("\n");
 		while(!cpuqp->cpugpu.produce(&images1[img_idx * IMG_DIMENSION * IMG_DIMENSION],&images2[img_idx * IMG_DIMENSION * IMG_DIMENSION]));
+		cpuqp->gpucpu.test();
 	}
 	printf("finish loop\n");
 
-	while(finished<NREQUESTS)
+	/*while(finished<NREQUESTS)
 	{
 		if(cpuqp->gpucpu.consume(&distance))
 		{
 			//printf("distance=%f\n",distance);
 			total_distance+=distance;
 			finished++;
+			printf("finished=%d\n",finished);
 
 		}
-	}
+	}*/
+
 	printf("finish loop 2\n");
 	CUDA_CHECK( cudaDeviceSynchronize());
+	cpuqp->gpucpu.test();
 	printf("average distance between images %f\n", total_distance / NREQUESTS);
 	return 0;
 }

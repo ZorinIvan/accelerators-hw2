@@ -1,5 +1,5 @@
 /* compile with: nvcc -O3 -maxrregcount=32 hw2.cu -o hw2 */
-/*
+
 #include <stdio.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -62,7 +62,7 @@ double static inline get_time_msec(void) {
     return t.tv_sec * 1e+3 + t.tv_usec * 1e-3;
 }
 
-/* we'll use these to rate limit the request load *//*
+/* we'll use these to rate limit the request load */
 struct rate_limit_t {
     double last_checked;
     double lambda;
@@ -92,7 +92,7 @@ void rate_limit_wait(struct rate_limit_t *rate_limit) {
     }
 }
 
-/* we won't load actual files. just fill the images with random bytes *//*
+/* we won't load actual files. just fill the images with random bytes */
 void load_image_pairs(uchar *images1, uchar *images2) {
     srand(0);
     for (int i = 0; i < N_IMG_PAIRS * IMG_DIMENSION * IMG_DIMENSION; i++) {
@@ -130,7 +130,7 @@ void image_to_histogram(uchar *image, int *histogram) {
 }
 
 double histogram_distance(int *h1, int *h2) {
-    /* we'll use the chi-square distance *//*
+    /* we'll use the chi-square distance */
     double distance = 0;
     for (int i = 0; i < 256; i++) {
         if (h1[i] + h2[i] != 0) {
@@ -181,7 +181,7 @@ void print_usage_and_die(char *progname) {
 /*******CLASS***WORK***ELEMENT********************/
 /*************************************************/
 
-/*
+
 
 
 class work_element {
@@ -280,7 +280,7 @@ bool work_element::check_kernel_finished(){
 
 
 /*************************************************/
-/*************************************************//*
+/*************************************************/
 
 
 
@@ -316,48 +316,18 @@ void check_completed_block(work_element* streams){
 
 #define QUEUE_SIZE 10
 
-/*************************************************/
-/*******CLASS***producer***consumer****queue******/
-/*************************************************//*
-class cpu2gpuQueue {
-public:
-	cpu2gpuQueue():size(QUEUE_SIZE),head(0),tail(0){}
-	~cpu2gpuQueue(){}
-	__host__ int produce(uchar* imag1,uchar* imag2);
-	__device__ int consume(uchar* images);
 
 
-private:
-	volatile int size;
-	volatile int head;
-	volatile int tail;
-	int q[QUEUE_SIZE];
-};
-__device__ int cpu2gpuQueue::consume(uchar* images)
-{
-	if(!(tail<head))return 0;
-	int i;
-	for(i=threadIdx.x;i<2*SQR(IMG_DIMENSION);i+=threadIdx.x)
-		images[i]=q[(tail%QUEUE_SIZE)*2*SQR(IMG_DIMENSION)+i];
-	//make sure all threads copied before increasing the value of tail
-	 __syncthreads();
-	 if(!threadIdx.x)
-	 {
-		 size++;
-		 tail++;
-		 __threadfence_system();
-	 }
-	 __syncthreads();
-	return 1;
-}
-__host__ int cpu2gpuQueue::produce(uchar* imag1,uchar* imag2)
-{
-	if(!(head<size)) return 0;
-	memcpy(&q[(head%QUEUE_SIZE)*2*SQR(IMG_DIMENSION)],imag1,SQR(IMG_DIMENSION)*sizeof(uchar));
-	memcpy(&q[(head%QUEUE_SIZE)*2*SQR(IMG_DIMENSION)+SQR(IMG_DIMENSION)],imag2,SQR(IMG_DIMENSION)*sizeof(uchar));
-	head++;
-	return 1;
-}
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -373,7 +343,7 @@ enum {PROGRAM_MODE_STREAMS = 0, PROGRAM_MODE_QUEUE};
 int main(int argc, char *argv[]) {
 
     int mode = -1;
-    int threads_queue_mode = -1; /* valid only when mode = queue *//*
+    int threads_queue_mode = -1; /* valid only when mode = queue */
     double load = 0;
     if (argc < 3) print_usage_and_die(argv[0]);
 
@@ -390,7 +360,7 @@ int main(int argc, char *argv[]) {
         print_usage_and_die(argv[0]);
     }
 
-    uchar *images1; /* we concatenate all images in one huge array *//*
+    uchar *images1; /* we concatenate all images in one huge array */
     uchar *images2;
     CUDA_CHECK( cudaHostAlloc(&images1, N_IMG_PAIRS * IMG_DIMENSION * IMG_DIMENSION, 0) );
     CUDA_CHECK( cudaHostAlloc(&images2, N_IMG_PAIRS * IMG_DIMENSION * IMG_DIMENSION, 0) );
@@ -399,7 +369,7 @@ int main(int argc, char *argv[]) {
     double t_start, t_finish;
     double total_distance;
 
-    /* using CPU *//*
+    /* using CPU */
     printf("\n=== CPU ===\n");
     int histogram1[256];
     int histogram2[256];
@@ -414,7 +384,7 @@ int main(int argc, char *argv[]) {
     printf("average distance between images %f\n", total_distance / NREQUESTS);
     printf("throughput = %lf (req/sec)\n", NREQUESTS / (t_finish - t_start) * 1e+3);
 
-    /* using GPU task-serial.. just to verify the GPU code makes sense *//*
+    /* using GPU task-serial.. just to verify the GPU code makes sense */
     printf("\n=== GPU Task Serial ===\n");
     do {
         uchar *gpu_image1, *gpu_image2; // TODO: allocate with cudaMalloc
@@ -447,7 +417,7 @@ int main(int argc, char *argv[]) {
         printf("throughput = %lf (req/sec)\n", NREQUESTS / (t_finish - t_start) * 1e+3);
     } while (0);
 
-    /* now for the client-server part *//*
+    /* now for the client-server part */
     printf("\n=== Client-Server ===\n");
     total_distance = 0;
     double *req_t_start = (double *) malloc(NREQUESTS * sizeof(double));
@@ -459,7 +429,7 @@ int main(int argc, char *argv[]) {
     struct rate_limit_t rate_limit;
     rate_limit_init(&rate_limit, load, 0);
 
-    /* TODO allocate / initialize memory, streams, etc... *//*
+    /* TODO allocate / initialize memory, streams, etc... */
     //cudaEvent_t
     work_element streams[N_STREMS];
 
@@ -471,7 +441,7 @@ int main(int argc, char *argv[]) {
 
             /* TODO query (don't block) streams for any completed requests.
                update req_t_end of completed requests
-               update total_distance *//*
+               update total_distance */
         	check_completed_no_block(streams);//TODO impl
             rate_limit_wait(&rate_limit);
             req_t_start[i]=get_time_msec();
@@ -494,15 +464,15 @@ int main(int argc, char *argv[]) {
             /* TODO check producer consumer queue for any responses.
                don't block. if no responses are there we'll check again in the next iteration
                update req_t_end of completed requests 
-               update total_distance *//*
+               update total_distance */
 
             rate_limit_wait(&rate_limit);
             int img_idx = i % N_IMG_PAIRS;
             req_t_start[i] = get_time_msec();
 
-            /* TODO place memcpy's and kernels in a stream *//*
+            /* TODO place memcpy's and kernels in a stream */
         }
-        /* TODO wait until you have responses for all requests *//*
+        /* TODO wait until you have responses for all requests */
     } else {
         assert(0);
     }
@@ -523,4 +493,4 @@ int main(int argc, char *argv[]) {
 
     return 0;
 }
-*/
+
