@@ -646,6 +646,7 @@ int main(int argc, char *argv[]) {
         total_distance=work_element::total_distance;
 
 
+
     } else if (mode == PROGRAM_MODE_QUEUE) {
     	//calc num of thread blocks that can currently run in the GPU
     	int num_of_threadblocks = calcNumOfThreadblocks(threads_queue_mode); //TODO
