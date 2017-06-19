@@ -102,6 +102,7 @@ __device__ __host__ uchar local_binary_pattern(uchar *image, int i, int j) {
     return pattern;
 }
 
+
 void image_to_histogram(uchar *image, int *histogram) {
     memset(histogram, 0, sizeof(int) * 256);
     for (int i = 0; i < IMG_DIMENSION; i++) {
@@ -129,8 +130,11 @@ __global__ void gpu_image_to_histogram(uchar *image, int *histogram) {
 }
 
 __device__ void gpu_device_image_to_histogram(uchar *image, int *histogram) {
-    uchar pattern = local_binary_pattern(image, threadIdx.x / IMG_DIMENSION, threadIdx.x % IMG_DIMENSION);
-    atomicAdd(&histogram[pattern], 1);
+	for(int i=threadIdx.x;i<SQR(IMG_DIMENSION);i+=blockDim.x)
+	{
+	    uchar pattern = local_binary_pattern(image, i / IMG_DIMENSION, i % IMG_DIMENSION);
+	    atomicAdd(&histogram[pattern], 1);
+	}
 }
 
 __global__ void gpu_histogram_distance(int *h1, int *h2, double *distance) {
@@ -331,30 +335,30 @@ class cpu2gpuQueue {
 public:
 	cpu2gpuQueue():size(QUEUE_SIZE),head(0),tail(0){}
 	~cpu2gpuQueue(){}
-	__host__ int produce(int img_idx,double* finish);
-	__device__ int consume(int* img_idx,double** finish);
+	__host__ int produce(int img_idx/*,double* finish*/);
+	__device__ int consume(int* img_idx/*,double** finish*/);
 private:
 	volatile int size;
 	volatile int head;
 	volatile int tail;
 	int q[QUEUE_SIZE];
-	double* q_finished_times[QUEUE_SIZE];
+	//double* q_finished_times[QUEUE_SIZE];
 };
-__device__ int cpu2gpuQueue::consume(int* img_idx,double** finish)
+__device__ int cpu2gpuQueue::consume(int* img_idx/*,double** finish*/)
 {
 	if(!(tail<head))return 0;
 	*img_idx=q[(tail%QUEUE_SIZE)];
-	*finish=q_finished_times[(tail%QUEUE_SIZE)];
+	//*finish=q_finished_times[(tail%QUEUE_SIZE)];
 	size++;
 	tail++;
 	__threadfence_system();
 	return 1;
 }
-__host__ int cpu2gpuQueue::produce(int img_idx,double* finish)
+__host__ int cpu2gpuQueue::produce(int img_idx/*,double* finish*/)
 {
 	if(!(head<size))return 0;
 	q[(head%QUEUE_SIZE)]=img_idx;
-	q_finished_times[(head%QUEUE_SIZE)]=finish;
+	//q_finished_times[(head%QUEUE_SIZE)]=finish;
 	head++;
 	return 1;
 }
@@ -362,29 +366,31 @@ class gpu2cpuQueue {
 public:
 	gpu2cpuQueue():size(QUEUE_SIZE),head(0),tail(0){}
 	~gpu2cpuQueue(){}
-	__device__ int produce(double distance,double* finish);
+	__device__ int produce(double distance/*,double* finish*/);
 	__host__ int consume(double* distance);
 private:
 	volatile int size;
 	volatile int head;
 	volatile int tail;
 	double q[QUEUE_SIZE];
-	double* q_finished_times[QUEUE_SIZE];
+	//double* q_finished_times[QUEUE_SIZE];
 };
 __host__ int gpu2cpuQueue::consume(double* distance)
 {
 	if(!(tail<head))return 0;
 	*distance=q[(tail%QUEUE_SIZE)];
-	*(q_finished_times[(tail%QUEUE_SIZE)])=get_time_msec();
+	//double time=get_time_msec();
+	//*(q_finished_times[(tail%QUEUE_SIZE)])=get_time_msec();
+	//if(!*(q_finished_times[(tail%QUEUE_SIZE)]))printf("error\n");
 	size++;
 	tail++;
 	return 1;
 }
-__device__ int gpu2cpuQueue::produce(double distance,double* finish)
+__device__ int gpu2cpuQueue::produce(double distance/*,double* finish*/)
 {
 	if(!(head<size)) return 0;
 	q[(head%QUEUE_SIZE)]=distance;
-	q_finished_times[(head%QUEUE_SIZE)]=finish;
+	//q_finished_times[(head%QUEUE_SIZE)]=finish;
 	__threadfence_system();
 	head++;
 	__threadfence_system();
@@ -394,8 +400,7 @@ typedef struct {
 	cpu2gpuQueue cpugpu;
 	gpu2cpuQueue gpucpu;
 } QP;
-typedef QP* QParr;
-void checkQueueComplition(int num_of_threadblocks,QP **cpuQPs,int * finished, double* total_distance )
+void checkQueueComplition(int num_of_threadblocks,QP **cpuQPs,int * finished, double* total_distance,double *req_t_end )
 {
 
 	double distance;
@@ -404,39 +409,40 @@ void checkQueueComplition(int num_of_threadblocks,QP **cpuQPs,int * finished, do
 		do{
 			ret=cpuQPs[i]->gpucpu.consume(&distance);
 			*total_distance+=ret*distance;
+			if(ret) req_t_end[*finished]=get_time_msec();
 			*finished+=ret;
 		}while(ret);
 	}
 }
-void QueueProduce(int num_of_threadblocks,QP **cpuQPs,int img_idx,int * finished, double* total_distance,double* finish_time )
+void QueueProduce(int num_of_threadblocks,QP **cpuQPs,int img_idx,int * finished, double* total_distance,double *req_t_end  )
 {
 	bool produced=false;
 	while(!produced)
 	{
 		for(int i=0;i<num_of_threadblocks;i++)
 		{
-			if(cpuQPs[i]->cpugpu.produce(img_idx,finish_time))
+			if(cpuQPs[i]->cpugpu.produce(img_idx/*,finish_time*/))
 			{
 				produced=true;
 				break;
 			}
 			else
-				checkQueueComplition(num_of_threadblocks,cpuQPs,finished, total_distance );
+				checkQueueComplition(num_of_threadblocks,cpuQPs,finished, total_distance,req_t_end );
 		}
 	}
 }
-void QueueProduceBlock(int blockId,int num_of_threadblocks,QP **cpuQPs,int img_idx,int * finished, double* total_distance )
+void QueueProduceBlock(int blockId,int num_of_threadblocks,QP **cpuQPs,int img_idx,int * finished, double* total_distance,double *req_t_end )
 {
 	bool produced=false;
 	while(!produced)
 	{
-			if(cpuQPs[blockId]->cpugpu.produce(img_idx,NULL))
+			if(cpuQPs[blockId]->cpugpu.produce(img_idx/*,NULL*/))
 			{
 				produced=true;
 				break;
 			}
 			else
-				checkQueueComplition(num_of_threadblocks,cpuQPs,finished, total_distance );
+				checkQueueComplition(num_of_threadblocks,cpuQPs,finished, total_distance ,req_t_end);
 	}
 }
 
@@ -444,7 +450,7 @@ __global__ void kernel_queue_mode(QP** gpuQPs,uchar* imags1,uchar* imags2 ){
 	__shared__ int hist1[HIST_SIZE],hist2[HIST_SIZE];
 	__shared__ double distance[HIST_SIZE];
 	__shared__ int img_idx;
-	double* finish_time;
+
 
 
 
@@ -455,7 +461,7 @@ __global__ void kernel_queue_mode(QP** gpuQPs,uchar* imags1,uchar* imags2 ){
 	//for(int i=0;i<NREQUESTS;i++)
 	while( running )
 	{
-		if(!threadIdx.x)while(!gpuQPs[blockIdx.x]->cpugpu.consume(&img_idx,&finish_time));
+		if(!threadIdx.x)while(!gpuQPs[blockIdx.x]->cpugpu.consume(&img_idx/*,&finish_time*/));
 		__syncthreads();
 		//printf("img_idx=%d\n",img_idx);
 		if(img_idx==-1)
@@ -466,7 +472,7 @@ __global__ void kernel_queue_mode(QP** gpuQPs,uchar* imags1,uchar* imags2 ){
 		gpu_device_histogram_distance(hist1,hist2,distance);
 		__syncthreads();
 		//if(!threadIdx.x)total_distance+=distance[0];
-		if(!threadIdx.x)while(!gpuQPs[blockIdx.x]->gpucpu.produce(distance[0],finish_time));
+		if(!threadIdx.x)while(!gpuQPs[blockIdx.x]->gpucpu.produce(distance[0]/*,finish_time*/));
 		__syncthreads();
 	}
 	__syncthreads();
@@ -531,6 +537,98 @@ int calcNumOfThreadblocks(int threadsPerBlock){//TODO: implement
 
 }
 
+void run_queue(double cpu_distance, double* avg_latency,double* throughput,uchar*images1,uchar*images2,int threads_queue_mode,\
+		double load)
+{
+
+	double total_distance = 0;
+	double *req_t_start = (double *) malloc(NREQUESTS * sizeof(double));
+	memset(req_t_start, 0, NREQUESTS * sizeof(double));
+
+	double *req_t_end = (double *) malloc(NREQUESTS * sizeof(double));
+	memset(req_t_end, 0, NREQUESTS * sizeof(double));
+
+	struct rate_limit_t rate_limit;
+	rate_limit_init(&rate_limit, load, 0);
+	work_element streams[N_STREMS];
+	double ti = get_time_msec();
+
+	int num_of_threadblocks = calcNumOfThreadblocks(threads_queue_mode); //TODO
+	int finished=0;
+	uchar *gpu_image1, *gpu_image2;
+    CUDA_CHECK(cudaMalloc(&gpu_image1,SQR(IMG_DIMENSION)*N_IMG_PAIRS));
+	CUDA_CHECK(cudaMalloc(&gpu_image2,SQR(IMG_DIMENSION)*N_IMG_PAIRS));
+	CUDA_CHECK(cudaMemcpy(gpu_image1,images1, SQR(IMG_DIMENSION)*N_IMG_PAIRS,cudaMemcpyHostToDevice));
+	CUDA_CHECK(cudaMemcpy(gpu_image2,images2, SQR(IMG_DIMENSION)*N_IMG_PAIRS,cudaMemcpyHostToDevice));
+
+	QP **cpuQPs,**gpuQPs;
+	CUDA_CHECK( cudaHostAlloc(&cpuQPs, num_of_threadblocks*sizeof(QP*), 0) );
+	CUDA_CHECK( cudaHostGetDevicePointer( &gpuQPs,cpuQPs ,0 ) );
+
+	for(int i=0;i<num_of_threadblocks;i++)
+	{
+        CUDA_CHECK( cudaHostAlloc(&cpuQPs[i], sizeof(QP), 0) );
+	    cpuQPs[i]->cpugpu=cpu2gpuQueue();
+	    cpuQPs[i]->gpucpu=gpu2cpuQueue();
+	    CUDA_CHECK( cudaHostGetDevicePointer(&gpuQPs[i],cpuQPs[i],0) );
+	 }
+	kernel_queue_mode<<<num_of_threadblocks, threads_queue_mode>>>(gpuQPs,gpu_image1,gpu_image2);
+
+	for(int i=0;i<NREQUESTS;i++)
+	{
+		int img_idx = i % N_IMG_PAIRS;
+		checkQueueComplition(num_of_threadblocks,cpuQPs,&finished, &total_distance,req_t_end );
+		req_t_end[i] = get_time_msec();
+		QueueProduce(num_of_threadblocks,cpuQPs,img_idx,&finished, &total_distance,req_t_end);
+	}
+	for(int i=0;i<num_of_threadblocks;i++)
+		QueueProduceBlock(i,num_of_threadblocks,cpuQPs,-1,&finished, &total_distance,req_t_end );
+	while(finished<NREQUESTS)
+		checkQueueComplition(num_of_threadblocks,cpuQPs,&finished, &total_distance,req_t_end );
+	CUDA_CHECK( cudaDeviceSynchronize());
+	CUDA_CHECK(cudaFree(gpu_image1));
+	CUDA_CHECK(cudaFree(gpu_image2));
+	for(int i=0;i<num_of_threadblocks;i++)
+		CUDA_CHECK( cudaFreeHost(cpuQPs[i]) );
+	CUDA_CHECK( cudaFreeHost(cpuQPs) );
+	double tf = get_time_msec();
+	*avg_latency=0;
+	for (int i = 0; i < NREQUESTS; i++) {
+		*avg_latency += (req_t_end[i] - req_t_start[i]);
+	}
+	*avg_latency /= NREQUESTS;
+	* throughput=NREQUESTS / (tf - ti) * 1e+3;
+
+	if(total_distance/NREQUESTS-cpu_distance>0.000001||total_distance-cpu_distance<-0.000001) printf("baaaaad\n");
+	free(req_t_start);
+	free(req_t_end);
+	return;
+
+
+
+
+}
+
+
+
+void run_queue_avg(double cpu_distance, double* avg_latency,double* throughput,uchar*images1,uchar*images2,int threads_queue_mode,\
+		double load)
+{
+	double throughput_sum=0 , avg_latency_sum = 0;
+	for(int i=0;i<100;i++)
+	{
+		run_queue(cpu_distance, avg_latency,throughput,images1,images2,threads_queue_mode,load);
+		throughput_sum+=(*throughput);
+		avg_latency_sum+=(*avg_latency);
+	}
+	*throughput=throughput_sum/100;
+	*avg_latency=avg_latency_sum/100;
+    printf("load = %lf (req/sec)\n", load);
+    printf("throughput = %lf (req/sec)\n",* throughput);
+    printf("average latency = %lf (msec)\n", *avg_latency);
+    return;
+}
+
 enum {PROGRAM_MODE_STREAMS = 0, PROGRAM_MODE_QUEUE};
 int main(int argc, char *argv[]) {
 
@@ -575,6 +673,7 @@ int main(int argc, char *argv[]) {
     t_finish = get_time_msec();
     printf("average distance between images %f\n", total_distance / NREQUESTS);
     printf("throughput = %lf (req/sec)\n", NREQUESTS / (t_finish - t_start) * 1e+3);
+
 
     /* using GPU task-serial.. just to verify the GPU code makes sense */
     printf("\n=== GPU Task Serial ===\n");
@@ -624,6 +723,7 @@ int main(int argc, char *argv[]) {
     double *req_t_end = (double *) malloc(NREQUESTS * sizeof(double));
     memset(req_t_end, 0, NREQUESTS * sizeof(double));
 
+
     struct rate_limit_t rate_limit;
     rate_limit_init(&rate_limit, load, 0);
     work_element streams[N_STREMS];
@@ -650,12 +750,29 @@ int main(int argc, char *argv[]) {
     } else if (mode == PROGRAM_MODE_QUEUE) {
     	//calc num of thread blocks that can currently run in the GPU
     	int num_of_threadblocks = calcNumOfThreadblocks(threads_queue_mode); //TODO
+    	if(!num_of_threadblocks)
+    	{
+    		printf("the number of thread blocks that can run is 0!!\n");
+    		exit(1);
+    	}
+    	/*double avg_latency_tmp,throughput,throughput_sum=0,avg_latency=0;
+    	run_queue_avg(cpu_distance,&avg_latency,&throughput,images1,images2,threads_queue_mode,load);
+
+    	double max_load=throughput;
+    	for(int k=0;k<10;k++)
+    	{
+    		load=(max_load/10)+(max_load*2-max_load/10)*k/10;
+    		run_queue_avg(cpu_distance, &avg_latency_tmp,&throughput,images1,images2,threads_queue_mode,load);
+    	}*/
+
+    	//run_queue(cpu_distance, &avg_latency,&throughput,images1,images2,threads_queue_mode,load);
     	int finished=0;
     	uchar *gpu_image1, *gpu_image2;
     	CUDA_CHECK(cudaMalloc(&gpu_image1,SQR(IMG_DIMENSION)*N_IMG_PAIRS));
     	CUDA_CHECK(cudaMalloc(&gpu_image2,SQR(IMG_DIMENSION)*N_IMG_PAIRS));
         CUDA_CHECK(cudaMemcpy(gpu_image1,images1, SQR(IMG_DIMENSION)*N_IMG_PAIRS,cudaMemcpyHostToDevice));
     	CUDA_CHECK(cudaMemcpy(gpu_image2,images2, SQR(IMG_DIMENSION)*N_IMG_PAIRS,cudaMemcpyHostToDevice));
+
 
 
     	QP **cpuQPs,**gpuQPs;
@@ -675,16 +792,16 @@ int main(int argc, char *argv[]) {
     	for(int i=0;i<NREQUESTS;i++)
     		{
     			int img_idx = i % N_IMG_PAIRS;
-    			checkQueueComplition(num_of_threadblocks,cpuQPs,&finished, &total_distance );
+    			checkQueueComplition(num_of_threadblocks,cpuQPs,&finished, &total_distance,req_t_end );
     			rate_limit_wait(&rate_limit);
     			req_t_start[i] = get_time_msec();
-    			req_t_end[i] = get_time_msec();
-    			QueueProduce(num_of_threadblocks,cpuQPs,img_idx,&finished, &total_distance ,&req_t_end[i]);
+    			//req_t_end[i] = get_time_msec();
+    			QueueProduce(num_of_threadblocks,cpuQPs,img_idx,&finished, &total_distance,req_t_end);
     		}
    		for(int i=0;i<num_of_threadblocks;i++)
-   			QueueProduceBlock(i,num_of_threadblocks,cpuQPs,-1,&finished, &total_distance );
+   			QueueProduceBlock(i,num_of_threadblocks,cpuQPs,-1,&finished, &total_distance,req_t_end );
    		while(finished<NREQUESTS)
-   			checkQueueComplition(num_of_threadblocks,cpuQPs,&finished, &total_distance );
+   			checkQueueComplition(num_of_threadblocks,cpuQPs,&finished, &total_distance,req_t_end );
    		CUDA_CHECK( cudaDeviceSynchronize());
         CUDA_CHECK(cudaFree(gpu_image1));
    	    CUDA_CHECK(cudaFree(gpu_image2));
@@ -701,6 +818,12 @@ int main(int argc, char *argv[]) {
     double avg_latency = 0;
     for (int i = 0; i < NREQUESTS; i++) {
         avg_latency += (req_t_end[i] - req_t_start[i]);
+        if((req_t_end[i] - req_t_start[i])<0)
+        {
+        	//avg_latency -= (req_t_end[i] - req_t_start[i]);
+        	//printf("error,i=%d\n",i);
+        }
+
     }
     avg_latency /= NREQUESTS;
 
