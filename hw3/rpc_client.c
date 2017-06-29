@@ -113,20 +113,42 @@ void rpc_call(struct ib_resources_t *ib_resources,
     /* TODO: wait for completion of this WQE using ibv_poll_cq() */
     /* wait for CQE on this operation so we know it is completed.
      * make sure ibv_poll_cq() succeeded and cqe is not error*/
+    /* wait for CQE on this operation so we know it is completed */
+    do {
+        ncqes = ibv_poll_cq(ib_resources->cq, 1, &wc);
+    } while (ncqes == 0);
+    if (ncqes < 0) {
+        printf("ERROR: ibv_poll_cq() failed\n");
+        exit(1);
+    }
+    if (wc.status != IBV_WC_SUCCESS) {
+        printf("ERROR: got CQE with error %d (line %d)\n", wc.status, __LINE__);
+        exit(1);
+    }
+    assert(wc.opcode == IBV_WC_RDMA_WRITE); /* make sure it's the CQE we're expecting */
 
-    assert(wc.opcode == IBV_WC_RDMA_WRITE);
 
     /* ok now we want to know if server has finished to produce the result */
     if (result) {
         /* TODO: wait for CQE telling us that result is ready in the server using ibv_poll_cq()
          * make sure ibv_poll_cq() succeeded and CQE is not error */
-
+        do {
+            ncqes = ibv_poll_cq(ib_resources->cq, 1, &wc);
+        } while (ncqes == 0);
+        if (ncqes < 0) {
+            printf("ERROR: ibv_poll_cq() failed\n");
+            exit(1);
+        }
+        if (wc.status != IBV_WC_SUCCESS) {
+            printf("ERROR: got CQE with error %d (line %d)\n", wc.status, __LINE__);
+            exit(1);
+        }
         assert(wc.opcode == IBV_WC_RECV);
         *result_size = wc.imm_data;
 
         /* now we'll read the result from the server's result buffer.
          * we'll read it into our own result buffer, but we need first to register it using ibv_reg_mr() */
-        struct ibv_mr *mr = ibv_reg_mr(ib_resources->pd, /*TODO fill missing arguments */, IBV_ACCESS_LOCAL_WRITE);
+        struct ibv_mr *mr = ibv_reg_mr(ib_resources->pd, result, *result_size, IBV_ACCESS_LOCAL_WRITE);
         if (!mr) {
             printf("ERROR: ibv_reg_mr failed\n");
             exit(1);
@@ -138,19 +160,23 @@ void rpc_call(struct ib_resources_t *ib_resources,
         memset(&wr, 0, sizeof(struct ibv_send_wr));
 
         /* gather item: tells where the data should be written, we'll use the memory region parameters here */
-        sg.addr = /* TODO fill this*/
-        sg.length = /* TODO fill this */
-        sg.lkey = /* TODO fill this */
+        sg.addr = mr->addr;/* TODO fill this*/
+        sg.length = mr->length;/* TODO fill this */
+        sg.lkey = mr->lkey;/* TODO fill this */
 
         wr.wr_id = wr_id++;
         wr.sg_list = &sg;
         wr.num_sge = 1;
-        wr.opcode = /* TODO fill this */
+        wr.opcode = IBV_WR_RDMA_READ ;/* TODO fill this */
         wr.send_flags = IBV_SEND_SIGNALED;
-        wr.wr.rdma.remote_addr = ib_resources->/*TODO complete*/;
-        wr.wr.rdma.rkey = ib_resources->/*TODO complete*/;
+        wr.wr.rdma.remote_addr = ib_resources->server_result_addr;/*TODO complete*/;
+        wr.wr.rdma.rkey = ib_resources->server_result_key;/*TODO complete*/;
 
         /* TODO post the WQE for execution using ibv_post_send() */
+        if (ibv_post_send(ib_resources->qp, &wr, &bad_wr)) {
+            printf("ERROR: ibv_post_send() failed\n");
+            exit(1);
+        }
 
         /* wait for CQE on this operation so we know it is completed */
         do {
