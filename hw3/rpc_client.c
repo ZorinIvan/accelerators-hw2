@@ -97,7 +97,7 @@ void rpc_call(struct ib_resources_t *ib_resources,
     wr.wr_id = wr_id++; /* running index. should be inceremented for each WQE */
     wr.sg_list = NULL; /* we don't want to send any data */
     wr.num_sge = 0;
-    wr.opcode = /* TODO: fill in this. refer to the man page or to the references mentioned in the homework PDF */
+    wr.opcode = IBV_WR_RDMA_WRITE_WITH_IMM;/* TODO: fill in this. refer to the man page or to the references mentioned in the homework PDF */
     wr.imm_data = func_type; /* immediate data will contain the function that we want to perform */
     wr.send_flags = IBV_SEND_SIGNALED; /* always set this in this assignment. generates CQE */
     wr.wr.rdma.remote_addr = ib_resources->server_args_addr; /* we'll "write" to argument buffer, but we're not writing anything really */
@@ -105,6 +105,10 @@ void rpc_call(struct ib_resources_t *ib_resources,
 
 
     /* TODO: post the WQE using ibv_post_send() */
+    if (ibv_post_send(ib_resources->qp, &wr, &bad_wr)) {
+        printf("ERROR: ibv_post_send() failed\n");
+        exit(1);
+    }
 
     /* TODO: wait for completion of this WQE using ibv_poll_cq() */
     /* wait for CQE on this operation so we know it is completed.
