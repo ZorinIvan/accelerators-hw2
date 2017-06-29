@@ -160,7 +160,7 @@ void rpc_call(struct ib_resources_t *ib_resources,
         memset(&wr, 0, sizeof(struct ibv_send_wr));
 
         /* gather item: tells where the data should be written, we'll use the memory region parameters here */
-        sg.addr = mr->addr;/* TODO fill this*/
+        sg.addr =  (uintptr_t)mr->addr;/* TODO fill this*/
         sg.length = mr->length;/* TODO fill this */
         sg.lkey = mr->lkey;/* TODO fill this */
 
