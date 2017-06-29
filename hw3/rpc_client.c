@@ -413,6 +413,7 @@ void teardown_connection(struct ib_resources_t *ib_resources) {
     ibv_destroy_cq(ib_resources->cq);
     ibv_dealloc_pd(ib_resources->pd);
     ibv_close_device(ib_resources->context);
+    free(ib_resources);
 }
 
 int main(int argc, char *argv[]) {
